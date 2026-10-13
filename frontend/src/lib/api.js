@@ -1,6 +1,8 @@
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+
 export async function api(path, options = {}) {
   const studentToken = !path.startsWith("/admin/") && localStorage.getItem("studentToken");
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(`${API_BASE_URL}/api${path}`, {
     ...options,
     headers: { "content-type": "application/json", ...(studentToken ? { authorization: `Bearer ${studentToken}` } : {}), ...options.headers },
   });
