@@ -1,0 +1,8 @@
+data/store.json
+
+# Local environment files and secrets
+.env
+.env.*
+.envs
+.envs.*
+!.env.example
