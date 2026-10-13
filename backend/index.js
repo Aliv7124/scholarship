@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID, randomBytes, timingSafeEqual, scryptSync } from "node:crypto";
+import { randomUUID, randomBytes, timingSafeEqual, scryptSync, createHash } from "node:crypto";
 import { MongoClient } from "mongodb";
 import dotenv from "dotenv";
 
@@ -13,7 +13,6 @@ const port = Number(process.env.API_PORT || 3001);
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 const geminiModel = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 const adminPassword = process.env.ADMIN_PASSWORD;
-const adminSessions = new Map();
 const studentSessions = new Map();
 
 const scholarships = [
@@ -36,6 +35,7 @@ const mongoClient = new MongoClient(mongoUri);
 await mongoClient.connect();
 const mongoDb = mongoClient.db(process.env.MONGODB_DATABASE || undefined);
 const storeCollection = mongoDb.collection("app_state");
+const adminSessionsCollection = mongoDb.collection("admin_sessions");
 const emptyStore = () => ({ saved: [], profiles: [], applications: [], subscriptions: [], contacts: [], students: [], scholarships: [], hiddenScholarshipIds: [] });
 const readLegacyStore = async () => {
   try { return JSON.parse(await readFile(dataFile, "utf8")); }
@@ -52,11 +52,12 @@ const allScholarships = async () => {
   const store = await readStore();
   return [...(store.scholarships || [])].reverse().concat(scholarships).filter((item) => !(store.hiddenScholarshipIds || []).includes(item.id));
 };
-const adminAuthorized = (req) => {
+const hashAdminToken = (token) => createHash("sha256").update(token).digest("hex");
+const adminAuthorized = async (req) => {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, "");
-  const expiresAt = token && adminSessions.get(token);
-  if (!expiresAt || expiresAt < Date.now()) { if (token) adminSessions.delete(token); return false; }
-  return true;
+  if (!token) return false;
+  const session = await adminSessionsCollection.findOne({ _id: hashAdminToken(token), expiresAt: { $gt: new Date() } }, { projection: { _id: 1 } });
+  return Boolean(session);
 };
 const secureCompare = (provided, expected) => {
   const left = Buffer.from(String(provided));
@@ -169,12 +170,15 @@ export async function handler(req, res) {
       const { password } = await bodyOf(req);
       if (!secureCompare(password, adminPassword)) return send(res, 401, { error: "Incorrect admin password." });
       const token = randomBytes(32).toString("hex");
-      adminSessions.set(token, Date.now() + 8 * 60 * 60 * 1000);
+      const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000);
+      await adminSessionsCollection.deleteMany({ expiresAt: { $lte: new Date() } });
+      await adminSessionsCollection.insertOne({ _id: hashAdminToken(token), expiresAt });
       return send(res, 200, { token, expiresIn: 28800 });
     }
-    if (url.pathname.startsWith("/api/admin/") && !adminAuthorized(req)) return send(res, 401, { error: "Admin session expired. Sign in again." });
+    if (url.pathname.startsWith("/api/admin/") && !(await adminAuthorized(req))) return send(res, 401, { error: "Admin session expired. Sign in again." });
     if (req.method === "POST" && url.pathname === "/api/admin/logout") {
-      adminSessions.delete(req.headers.authorization?.replace(/^Bearer\s+/i, ""));
+      const token = req.headers.authorization?.replace(/^Bearer\s+/i, "");
+      if (token) await adminSessionsCollection.deleteOne({ _id: hashAdminToken(token) });
       return send(res, 200, { ok: true });
     }
     if (req.method === "GET" && url.pathname === "/api/admin/dashboard") {
