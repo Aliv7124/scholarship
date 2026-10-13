@@ -1,0 +1,9 @@
+{
+  "name": "scholarshiphub",
+  "private": true,
+  "type": "module",
+  "workspaces": ["frontend", "backend"],
+  "scripts": {
+    "build": "npm run build --workspace scholarship"
+  }
+}

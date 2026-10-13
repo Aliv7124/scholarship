@@ -136,7 +136,7 @@ const findMatchesWithGemini = async (profile, catalog) => {
     .sort((a, b) => parseInt(b.match, 10) - parseInt(a.match, 10));
 };
 
-createServer(async (req, res) => {
+export async function handler(req, res) {
     if (req.method === "OPTIONS") return send(res, 204, {});
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   try {
@@ -252,7 +252,9 @@ createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/contact") { const data = await bodyOf(req); if (!data.name?.trim() || !validEmail(data.email) || !data.message?.trim()) return send(res, 400, { error: "Name, valid email, and message are required." }); const store = await readStore(); const contact = { id: randomUUID(), name: data.name.trim(), email: data.email.trim().toLowerCase(), message: data.message.trim(), createdAt: new Date().toISOString() }; store.contacts.push(contact); await saveStore(store); return send(res, 201, { message: "Thanks, your message has been received." }); }
     return send(res, 404, { error: "Route not found" });
   } catch (error) { return send(res, error.message === "Request body must be valid JSON" ? 400 : error.status || 500, { error: error.message || "Unexpected server error" }); }
-}).listen(port, () => console.log(`Scholarship API listening on http://localhost:${port}`));
+}
+
+if (process.env.VERCEL !== "1") createServer(handler).listen(port, () => console.log(`Scholarship API listening on http://localhost:${port}`));
 
 process.on("SIGINT", async () => { await mongoClient.close(); process.exit(0); });
 process.on("SIGTERM", async () => { await mongoClient.close(); process.exit(0); });
